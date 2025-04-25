@@ -2,4 +2,11 @@
 @tailwind components;
 @tailwind utilities;
 
+:root {
+  --primary-color: #3B82F6; /* Default blue color */
+  --secondary-color: #1D4ED8; /* Default darker blue */
+}
+
+/* Add any other global styles here */
+
 /* Custom styles can be added below */ 

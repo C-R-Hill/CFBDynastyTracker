@@ -15,15 +15,24 @@ export interface CreateDynastyData {
   startDate: string;
 }
 
+export interface Season {
+  year: number;
+  wins: number;
+  losses: number;
+  isEditable: boolean;
+}
+
 export interface Coach {
   _id?: string;
   dynastyId: string;
   firstName: string;
   lastName: string;
   college: string;
-  wins: number;
-  losses: number;
-  winPercentage: number;
+  seasons: Season[];
+  currentSeason: number;
+  wins: number;  // Virtual - total career wins
+  losses: number;  // Virtual - total career losses
+  winPercentage: number;  // Virtual
   createdAt?: string;
   updatedAt?: string;
 }
@@ -33,8 +42,11 @@ export interface CreateCoachData {
   firstName: string;
   lastName: string;
   college: string;
-  wins?: number;
-  losses?: number;
+}
+
+export interface UpdateSeasonData {
+  wins: number;
+  losses: number;
 }
 
 const api = {
@@ -91,6 +103,29 @@ const api = {
   deleteCoach: async (dynastyId: string, coachId: string): Promise<void> => {
     await axios.delete(`${API_BASE_URL}/dynasties/${dynastyId}/coaches/${coachId}`);
   },
+
+  // Start a new season for all coaches in a dynasty
+  startNewSeason: async (dynastyId: string): Promise<Coach[]> => {
+    const response = await axios.post(`${API_BASE_URL}/dynasties/${dynastyId}/coaches/start-season`);
+    return response.data;
+  },
+
+  // Update a specific season for a coach
+  updateSeason: async (dynastyId: string, coachId: string, year: number, data: UpdateSeasonData): Promise<Coach> => {
+    const response = await axios.put(
+      `${API_BASE_URL}/dynasties/${dynastyId}/coaches/${coachId}/seasons/${year}`,
+      data
+    );
+    return response.data;
+  },
+
+  // Toggle season editability
+  toggleSeasonEdit: async (dynastyId: string, coachId: string, year: number): Promise<Coach> => {
+    const response = await axios.put(
+      `${API_BASE_URL}/dynasties/${dynastyId}/coaches/${coachId}/seasons/${year}/toggle-edit`
+    );
+    return response.data;
+  }
 };
 
 export default api; 
