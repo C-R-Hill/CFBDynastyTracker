@@ -16,6 +16,7 @@ const CoachForm: React.FC<CoachFormProps> = ({ dynasty, onCoachCreated, currentC
     firstName: '',
     lastName: '',
     college: '',
+    position: '',
   });
 
   const handleSubmit = async (e: React.FormEvent) => {
@@ -42,6 +43,7 @@ const CoachForm: React.FC<CoachFormProps> = ({ dynasty, onCoachCreated, currentC
         firstName: '',
         lastName: '',
         college: '',
+        position: '',
       });
       
       // Notify parent component
@@ -56,7 +58,7 @@ const CoachForm: React.FC<CoachFormProps> = ({ dynasty, onCoachCreated, currentC
     }
   };
 
-  const handleInputChange = (e: React.ChangeEvent<HTMLInputElement>) => {
+  const handleInputChange = (e: React.ChangeEvent<HTMLInputElement | HTMLSelectElement>) => {
     const { name, value } = e.target;
     setFormData(prev => ({
       ...prev,
@@ -132,6 +134,26 @@ const CoachForm: React.FC<CoachFormProps> = ({ dynasty, onCoachCreated, currentC
               disabled={isLoading || currentCoaches.length >= MAX_COACHES}
               placeholder="Alabama"
             />
+          </div>
+
+          <div>
+            <label htmlFor="position" className="block text-sm font-medium text-gray-700">
+              Position
+            </label>
+            <select
+              id="position"
+              name="position"
+              value={formData.position}
+              onChange={handleInputChange}
+              className="mt-1 block w-full rounded-md border-gray-300 shadow-sm focus:border-blue-500 focus:ring-blue-500 sm:text-sm"
+              required
+              disabled={isLoading || currentCoaches.length >= MAX_COACHES}
+            >
+              <option value="">Select Position</option>
+              <option value="HC">Head Coach (HC)</option>
+              <option value="OC">Offensive Coordinator (OC)</option>
+              <option value="DC">Defensive Coordinator (DC)</option>
+            </select>
           </div>
         </div>
 

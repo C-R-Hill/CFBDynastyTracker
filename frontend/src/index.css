@@ -7,6 +7,71 @@
   --secondary-color: #1D4ED8; /* Default darker blue */
 }
 
+/* Override Bootstrap background colors */
+.bg-primary {
+  background-color: var(--primary-color) !important;
+}
+
+.text-primary {
+  color: var(--primary-color) !important;
+}
+
+.bg-secondary {
+  background-color: var(--secondary-color) !important;
+}
+
+.text-secondary {
+  color: var(--secondary-color) !important;
+}
+
+/* Add hover states */
+.hover\:bg-primary:hover {
+  background-color: var(--primary-color) !important;
+}
+
+.hover\:bg-secondary:hover {
+  background-color: var(--secondary-color) !important;
+}
+
+/* Add focus states */
+.focus\:ring-primary:focus {
+  --tw-ring-color: var(--primary-color) !important;
+}
+
+.focus\:ring-secondary:focus {
+  --tw-ring-color: var(--secondary-color) !important;
+}
+
+/* Add border colors */
+.border-primary {
+  border-color: var(--primary-color) !important;
+}
+
+.border-secondary {
+  border-color: var(--secondary-color) !important;
+}
+
+/* Ensure text contrast */
+.text-contrast {
+  color: white !important;
+}
+
+.text-contrast-dark {
+  color: black !important;
+}
+
+/* Form element focus styles */
+input:focus, select:focus {
+  outline: none;
+  box-shadow: 0 0 0 2px var(--primary-color), 0 0 0 4px var(--secondary-color) !important;
+}
+
+/* Apply transitions */
+.transition-colors {
+  transition-property: background-color, border-color, color, opacity;
+  transition-duration: 200ms;
+}
+
 /* Add any other global styles here */
 
 /* Custom styles can be added below */ 

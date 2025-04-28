@@ -20,6 +20,14 @@ const seasonSchema = new mongoose.Schema({
   isEditable: {
     type: Boolean,
     default: true
+  },
+  college: {
+    type: String,
+    required: true
+  },
+  position: {
+    type: String,
+    required: true
   }
 });
 
@@ -42,6 +50,12 @@ const coachSchema = new mongoose.Schema({
   college: {
     type: String,
     required: true,
+    trim: true
+  },
+  position: {
+    type: String,
+    required: true,
+    default: 'HC',
     trim: true
   },
   seasons: [seasonSchema],

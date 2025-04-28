@@ -10,6 +10,10 @@ const dynastySchema = new mongoose.Schema({
     type: Date,
     required: true
   },
+  currentYear: {
+    type: Number,
+    default: 2024
+  },
   createdAt: {
     type: Date,
     default: Date.now

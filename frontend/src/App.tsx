@@ -1,4 +1,6 @@
 import React, { useState, useEffect } from 'react'
+import 'bootstrap/dist/css/bootstrap.min.css'  // Bootstrap CSS first
+import './index.css'  // Our custom CSS after to override Bootstrap
 import CoachForm from './components/CoachForm'
 import DynastySelector from './components/DynastySelector'
 import TeamSelector from './components/TeamSelector'
@@ -6,6 +8,8 @@ import TeamSymbol from './components/TeamSymbol'
 import { Dynasty, Coach } from './services/api'
 import api from './services/api'
 import { Menu } from '@headlessui/react'
+import { teams } from './data/teams'
+import { Modal, Form, Button } from 'react-bootstrap'
 
 interface Team {
   id: string;
@@ -23,6 +27,8 @@ function App() {
   const [updatingCoach, setUpdatingCoach] = useState<string | null>(null);
   const [showTeamSelector, setShowTeamSelector] = useState(false);
   const [selectedTeam, setSelectedTeam] = useState<Team | null>(null);
+  const [showSeasonModal, setShowSeasonModal] = useState(false);
+  const [pendingSeasonUpdates, setPendingSeasonUpdates] = useState<Coach[]>([]);
 
   // Load selected team from localStorage on component mount
   useEffect(() => {
@@ -42,8 +48,12 @@ function App() {
   }, [selectedTeam]);
 
   const applyTeamColors = (team: Team) => {
+    // Apply colors to CSS variables
     document.documentElement.style.setProperty('--primary-color', team.primaryColor);
     document.documentElement.style.setProperty('--secondary-color', team.secondaryColor);
+    
+    // Apply background color to body but don't set text color globally
+    document.body.style.backgroundColor = team.primaryColor;
   };
 
   // Fetch coaches when dynasty is selected
@@ -86,14 +96,20 @@ function App() {
     });
   };
 
-  const handleSeasonUpdate = async (coachId: string, year: number, wins: number, losses: number) => {
+  const handleSeasonUpdate = async (
+    coachId: string,
+    year: number,
+    wins: number,
+    losses: number,
+    college: string,
+    position: string
+  ) => {
     if (!selectedDynasty) return;
-    
     try {
       setUpdatingCoach(coachId);
-      const updatedCoach = await api.updateSeason(selectedDynasty._id, coachId, year, { wins, losses });
-      setCoaches(prevCoaches => 
-        prevCoaches.map(coach => 
+      const updatedCoach = await api.updateSeason(selectedDynasty._id, coachId, year, { wins, losses, college, position });
+      setCoaches(prevCoaches =>
+        prevCoaches.map(coach =>
           coach._id === coachId ? updatedCoach : coach
         )
       );
@@ -122,15 +138,76 @@ function App() {
     }
   };
 
-  const handleStartNewSeason = async () => {
+  const handleOpenSeasonModal = () => {
+    setPendingSeasonUpdates(coaches.map(coach => ({ ...coach })));
+    setShowSeasonModal(true);
+  };
+
+  const handlePendingSeasonChange = (coachId: string, field: 'college' | 'position', value: string) => {
+    setPendingSeasonUpdates(prev => prev.map(coach =>
+      coach._id === coachId ? { ...coach, [field]: value } : coach
+    ));
+  };
+
+  const handleConfirmSeasonModal = async () => {
+    setShowSeasonModal(false);
+    await handleStartNewSeason(pendingSeasonUpdates);
+  };
+
+  const handleStartNewSeason = async (updates?: Coach[]) => {
     if (!selectedDynasty) return;
-    
     try {
       setIsLoading(true);
-      const updatedCoaches = await api.startNewSeason(selectedDynasty._id);
-      setCoaches(updatedCoaches);
+      
+      // Start the new season first
+      const newSeasonCoaches = await api.startNewSeason(selectedDynasty._id);
+      
+      // Then update the new season's college and position for each coach
+      if (updates) {
+        const updatePromises = updates.map(async (coach) => {
+          const updatedCoach = newSeasonCoaches.find(c => c._id === coach._id);
+          if (!updatedCoach) return null;
+          
+          // Get the new season's year
+          const newYear = updatedCoach.currentYear;
+          
+          // Update the season with new college and position
+          return api.updateSeason(
+            selectedDynasty._id,
+            coach._id!,
+            newYear,
+            {
+              wins: 0,
+              losses: 0,
+              college: coach.college,
+              position: coach.position
+            }
+          );
+        });
+        
+        const finalCoaches = await Promise.all(updatePromises);
+        setCoaches(finalCoaches.filter((c): c is Coach => c !== null));
+      } else {
+        setCoaches(newSeasonCoaches);
+      }
     } catch (err) {
       console.error('Error starting new season:', err);
+    } finally {
+      setIsLoading(false);
+    }
+  };
+
+  const handleRollbackSeason = async () => {
+    if (!selectedDynasty) return;
+    const confirmed = window.confirm('Are you sure you want to roll back the current season? This will delete all data for the current season for every coach.');
+    if (!confirmed) return;
+    try {
+      setIsLoading(true);
+      const updatedCoaches = await api.rollbackSeason(selectedDynasty._id);
+      setCoaches(updatedCoaches);
+    } catch (err) {
+      setError('Failed to roll back season. Please try again.');
+      console.error('Error rolling back season:', err);
     } finally {
       setIsLoading(false);
     }
@@ -169,8 +246,14 @@ function App() {
     return '';
   };
 
+  const [show, setShow] = useState(false);
+  const [position, setPosition] = useState('HC');
+
+  const handleClose = () => setShow(false);
+  const handleShow = () => setShow(true);
+
   return (
-    <div className="min-h-screen bg-primary">
+    <div className="min-h-screen" style={{ backgroundColor: 'var(--primary-color)' }}>
       <header className="bg-white shadow">
         <div className="max-w-7xl mx-auto py-6 px-4 sm:px-6 lg:px-8">
           <div className="flex items-center justify-between">
@@ -330,120 +413,142 @@ function App() {
                   <div>
                     <div className="mb-4 flex justify-end">
                       <button
-                        onClick={handleStartNewSeason}
+                        onClick={handleOpenSeasonModal}
                         className="inline-flex items-center px-4 py-2 border border-transparent text-sm font-medium rounded-md shadow-sm bg-white text-primary hover:bg-gray-50 focus:outline-none focus:ring-2 focus:ring-offset-2 focus:ring-white"
                       >
                         Start New Season
+                      </button>
+                      <button
+                        onClick={handleRollbackSeason}
+                        className="inline-flex items-center px-4 py-2 ml-2 border border-transparent text-sm font-medium rounded-md shadow-sm bg-white text-red-600 hover:bg-red-50 focus:outline-none focus:ring-2 focus:ring-offset-2 focus:ring-white"
+                      >
+                        Roll Back Season
                       </button>
                     </div>
                     <div className="bg-white shadow overflow-hidden sm:rounded-lg">
                       <div className="border-t border-gray-200">
                         <ul className="divide-y divide-gray-200">
-                          {coaches.map((coach) => (
-                            <li key={coach._id} className="px-4 py-4 sm:px-6 hover:bg-gray-50">
-                              <div className="flex items-center justify-between">
-                                <div className="flex-1">
-                                  <div className="flex items-center justify-between mb-2">
-                                    <p className="text-sm font-medium text-primary">
-                                      {coach.firstName} {coach.lastName}
-                                    </p>
-                                    <p className="text-sm text-gray-500">
-                                      {coach.college}
-                                    </p>
-                                  </div>
-                                  
-                                  {/* Seasons */}
-                                  <div className="space-y-3">
-                                    {coach.seasons
-                                      .slice()
-                                      .sort((a, b) => b.year - a.year)
-                                      .map((season) => (
-                                        <div key={season.year} className="flex items-center space-x-4">
-                                          <span className="text-sm text-gray-500 w-16">
-                                            {season.year}:
-                                          </span>
-                                          
-                                          <div className="flex items-center space-x-2">
-                                            <label htmlFor={`wins-${coach._id}-${season.year}`} className="text-sm text-gray-500">
-                                              Wins:
-                                            </label>
-                                            <input
-                                              key={`wins-${coach._id}-${season.year}-${season.isEditable}`}
-                                              type="number"
-                                              id={`wins-${coach._id}-${season.year}`}
-                                              min="0"
-                                              value={season.wins}
-                                              onChange={(e) => {
-                                                const wins = parseInt(e.target.value) || 0;
-                                                if (wins >= 0) {
-                                                  handleSeasonUpdate(coach._id!, season.year, wins, season.losses);
-                                                }
-                                              }}
-                                              className="w-16 rounded-md border-gray-300 shadow-sm focus:border-secondary focus:ring-secondary sm:text-sm"
-                                              disabled={updatingCoach === coach._id || (!season.isEditable && season.year !== coach.currentSeason)}
-                                            />
-                                          </div>
-                                          
-                                          <div className="flex items-center space-x-2">
-                                            <label htmlFor={`losses-${coach._id}-${season.year}`} className="text-sm text-gray-500">
-                                              Losses:
-                                            </label>
-                                            <input
-                                              key={`losses-${coach._id}-${season.year}-${season.isEditable}`}
-                                              type="number"
-                                              id={`losses-${coach._id}-${season.year}`}
-                                              min="0"
-                                              value={season.losses}
-                                              onChange={(e) => {
-                                                const losses = parseInt(e.target.value) || 0;
-                                                if (losses >= 0) {
-                                                  handleSeasonUpdate(coach._id!, season.year, season.wins, losses);
-                                                }
-                                              }}
-                                              className="w-16 rounded-md border-gray-300 shadow-sm focus:border-secondary focus:ring-secondary sm:text-sm"
-                                              disabled={updatingCoach === coach._id || (!season.isEditable && season.year !== coach.currentSeason)}
-                                            />
-                                          </div>
+                          {coaches.map((coach) => {
+                            // Find the current season for this coach
+                            const currentSeason = coach.seasons.find(s => s.year === coach.currentYear);
+                            // Find the team data for the current college
+                            const teamData = teams.find(t => t.name.toLowerCase() === (currentSeason?.college || '').toLowerCase());
+                            const teamColor = teamData ? teamData.primaryColor : '#333';
+                            return (
+                              <li key={coach._id} className="px-4 py-4 sm:px-6 hover:bg-gray-50">
+                                <div className="flex items-center justify-between">
+                                  <div className="flex-1">
+                                    <div className="flex items-center justify-between mb-2">
+                                      <p className="text-sm font-medium text-primary">
+                                        {coach.firstName} {coach.lastName}
+                                        {currentSeason && <span className="ml-2 text-gray-500">({currentSeason.position})</span>}
+                                      </p>
+                                    </div>
+                                    
+                                    {/* Seasons */}
+                                    <div className="space-y-3">
+                                      {coach.seasons
+                                        .slice()
+                                        .filter(season => typeof season.year === 'number' && season.year >= 2024)
+                                        .sort((a, b) => b.year - a.year)
+                                        .map((season) => (
+                                          <div key={season.year} className="flex items-center space-x-4">
+                                            <span className="text-sm text-gray-500 min-w-[200px]">
+                                              {season.year} {season.college} - {season.position}
+                                            </span>
+                                            <div className="flex items-center space-x-4 ml-4">
+                                              <div className="flex items-center space-x-2">
+                                                <label htmlFor={`wins-${coach._id}-${season.year}`} className="text-sm text-gray-500 w-10">
+                                                  Wins:
+                                                </label>
+                                                <input
+                                                  key={`wins-${coach._id}-${season.year}-${season.isEditable}`}
+                                                  type="number"
+                                                  id={`wins-${coach._id}-${season.year}`}
+                                                  min="0"
+                                                  value={season.wins}
+                                                  onChange={(e) => {
+                                                    const wins = parseInt(e.target.value) || 0;
+                                                    if (wins >= 0) {
+                                                      handleSeasonUpdate(coach._id!, season.year, wins, season.losses, season.college, season.position);
+                                                    }
+                                                  }}
+                                                  className="w-16 rounded-md border-gray-300 shadow-sm focus:border-secondary focus:ring-secondary sm:text-sm"
+                                                  disabled={updatingCoach === coach._id || (season.year !== coach.currentYear && !season.isEditable)}
+                                                />
+                                              </div>
+                                              
+                                              <div className="flex items-center space-x-2">
+                                                <label htmlFor={`losses-${coach._id}-${season.year}`} className="text-sm text-gray-500 w-14">
+                                                  Losses:
+                                                </label>
+                                                <input
+                                                  key={`losses-${coach._id}-${season.year}-${season.isEditable}`}
+                                                  type="number"
+                                                  id={`losses-${coach._id}-${season.year}`}
+                                                  min="0"
+                                                  value={season.losses}
+                                                  onChange={(e) => {
+                                                    const losses = parseInt(e.target.value) || 0;
+                                                    if (losses >= 0) {
+                                                      handleSeasonUpdate(coach._id!, season.year, season.wins, losses, season.college, season.position);
+                                                    }
+                                                  }}
+                                                  className="w-16 rounded-md border-gray-300 shadow-sm focus:border-secondary focus:ring-secondary sm:text-sm"
+                                                  disabled={updatingCoach === coach._id || (season.year !== coach.currentYear && !season.isEditable)}
+                                                />
+                                              </div>
 
-                                          {/* Edit/Save Controls - Only show for past seasons */}
-                                          {season.year !== coach.currentSeason && (
-                                            <div className="flex items-center space-x-2">
-                                              {season.isEditable ? (
-                                                <button
-                                                  onClick={() => handleToggleSeasonEdit(coach._id!, season.year)}
-                                                  className="p-1 text-green-600 hover:text-green-800 disabled:opacity-50"
-                                                  disabled={updatingCoach === coach._id}
-                                                  title="Save changes"
-                                                >
-                                                  <svg xmlns="http://www.w3.org/2000/svg" className="h-5 w-5" viewBox="0 0 20 20" fill="currentColor">
-                                                    <path fillRule="evenodd" d="M16.707 5.293a1 1 0 010 1.414l-8 8a1 1 0 01-1.414 0l-4-4a1 1 0 011.414-1.414L8 12.586l7.293-7.293a1 1 0 011.414 0z" clipRule="evenodd" />
-                                                  </svg>
-                                                </button>
-                                              ) : (
-                                                <button
-                                                  onClick={() => handleToggleSeasonEdit(coach._id!, season.year)}
-                                                  className="p-1 text-blue-600 hover:text-blue-800 disabled:opacity-50"
-                                                  disabled={updatingCoach === coach._id}
-                                                  title="Enable editing"
-                                                >
-                                                  <svg xmlns="http://www.w3.org/2000/svg" className="h-5 w-5" viewBox="0 0 20 20" fill="currentColor">
-                                                    <path d="M13.586 3.586a2 2 0 112.828 2.828l-.793.793-2.828-2.828.793-.793zM11.379 5.793L3 14.172V17h2.828l8.38-8.379-2.83-2.828z" />
-                                                  </svg>
-                                                </button>
+                                              {/* Edit/Save Controls - Only show for past seasons */}
+                                              {season.year !== coach.currentYear && (
+                                                <div className="flex items-center space-x-2 ml-4">
+                                                  {season.isEditable ? (
+                                                    <button
+                                                      onClick={() => handleToggleSeasonEdit(coach._id!, season.year)}
+                                                      className="p-1 text-green-600 hover:text-green-800 disabled:opacity-50"
+                                                      disabled={updatingCoach === coach._id}
+                                                      title="Save changes"
+                                                    >
+                                                      <svg xmlns="http://www.w3.org/2000/svg" className="h-5 w-5" viewBox="0 0 20 20" fill="currentColor">
+                                                        <path fillRule="evenodd" d="M16.707 5.293a1 1 0 010 1.414l-8 8a1 1 0 01-1.414 0l-4-4a1 1 0 011.414-1.414L8 12.586l7.293-7.293a1 1 0 011.414 0z" clipRule="evenodd" />
+                                                      </svg>
+                                                    </button>
+                                                  ) : (
+                                                    <button
+                                                      onClick={() => handleToggleSeasonEdit(coach._id!, season.year)}
+                                                      className="p-1 text-blue-600 hover:text-blue-800 disabled:opacity-50"
+                                                      disabled={updatingCoach === coach._id}
+                                                      title="Enable editing"
+                                                    >
+                                                      <svg xmlns="http://www.w3.org/2000/svg" className="h-5 w-5" viewBox="0 0 20 20" fill="currentColor">
+                                                        <path d="M13.586 3.586a2 2 0 112.828 2.828l-.793.793-2.828-2.828.793-.793zM11.379 5.793L3 14.172V17h2.828l8.38-8.379-2.83-2.828z" />
+                                                      </svg>
+                                                    </button>
+                                                  )}
+                                                </div>
                                               )}
                                             </div>
-                                          )}
-                                        </div>
-                                      ))}
-                                  </div>
+                                          </div>
+                                        ))}
+                                    </div>
 
-                                  <div className="mt-2 text-sm text-gray-500">
-                                    Career: {coach.wins}-{coach.losses} ({coach.winPercentage}%)
+                                    <div className="mt-2 text-sm text-gray-500">
+                                      Career: {coach.wins}-{coach.losses} ({coach.winPercentage}%)
+                                    </div>
                                   </div>
+                                  {/* Current Team Display */}
+                                  {currentSeason && (
+                                    <span
+                                      className={`text-sm font-bold px-3 py-1 rounded`}
+                                      style={{ backgroundColor: teamColor, color: teamData ? teamData.secondaryColor : '#fff' }}
+                                    >
+                                      {currentSeason.college}
+                                    </span>
+                                  )}
                                 </div>
-                              </div>
-                            </li>
-                          ))}
+                              </li>
+                            )
+                          })}
                         </ul>
                       </div>
                     </div>
@@ -469,6 +574,108 @@ function App() {
           </div>
         </div>
       </main>
+
+      {showSeasonModal && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black bg-opacity-50">
+          <div className="rounded-lg shadow-lg p-6 w-full max-w-2xl" style={{ backgroundColor: 'var(--secondary-color)' }}>
+            <h2 className="text-lg font-bold mb-4" style={{ color: 'var(--primary-color)' }}>
+              Update Coach Positions for New Season
+            </h2>
+            <div className="space-y-4">
+              {pendingSeasonUpdates.map(coach => (
+                <div key={coach._id} className="flex items-center space-x-4">
+                  <span className="w-32 font-medium" style={{ color: 'var(--primary-color)' }}>
+                    {coach.firstName} {coach.lastName}
+                  </span>
+                  <input
+                    type="text"
+                    value={coach.college}
+                    onChange={e => handlePendingSeasonChange(coach._id!, 'college', e.target.value)}
+                    className="w-40 rounded-md shadow-sm sm:text-sm bg-opacity-90"
+                    style={{ 
+                      backgroundColor: 'var(--primary-color)',
+                      color: 'var(--secondary-color)',
+                      borderColor: 'var(--primary-color)'
+                    }}
+                  />
+                  {/* Find current season for this coach */}
+                  {(() => {
+                    const currentSeason = coach.seasons.find(s => s.year === coach.currentYear);
+                    const currentPosition = currentSeason?.position || 'HC';
+                    return (
+                      <select
+                        value={currentPosition}
+                        onChange={(e) => handlePendingSeasonChange(coach._id!, 'position', e.target.value)}
+                        className="w-40 rounded-md shadow-sm sm:text-sm bg-opacity-90"
+                        style={{ 
+                          backgroundColor: 'var(--primary-color)',
+                          color: 'var(--secondary-color)',
+                          borderColor: 'var(--primary-color)'
+                        }}
+                      >
+                        <option value="HC">Head Coach (HC)</option>
+                        <option value="OC">Offensive Coordinator (OC)</option>
+                        <option value="DC">Defensive Coordinator (DC)</option>
+                      </select>
+                    );
+                  })()}
+                </div>
+              ))}
+            </div>
+            <div className="flex justify-end mt-6 space-x-2">
+              <button
+                onClick={() => setShowSeasonModal(false)}
+                className="px-4 py-2 rounded-md hover:opacity-90"
+                style={{ 
+                  backgroundColor: 'var(--primary-color)',
+                  color: 'var(--secondary-color)'
+                }}
+              >
+                Cancel
+              </button>
+              <button
+                onClick={handleConfirmSeasonModal}
+                className="px-4 py-2 rounded-md hover:opacity-90"
+                style={{ 
+                  backgroundColor: 'var(--primary-color)',
+                  color: 'var(--secondary-color)'
+                }}
+              >
+                Start New Season
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
+
+      <Modal show={show} onHide={handleClose}>
+        <Modal.Header closeButton>
+          <Modal.Title>Edit Season</Modal.Title>
+        </Modal.Header>
+        <Modal.Body>
+          <Form>
+            <Form.Group className="mb-3">
+              <Form.Label>Position</Form.Label>
+              <Form.Select 
+                value={position}
+                onChange={(e) => setPosition(e.target.value)}
+              >
+                <option value="HC">Head Coach (HC)</option>
+                <option value="OC">Offensive Coordinator (OC)</option>
+                <option value="DC">Defensive Coordinator (DC)</option>
+              </Form.Select>
+            </Form.Group>
+          </Form>
+        </Modal.Body>
+        <Modal.Footer>
+          <Button variant="secondary" onClick={handleClose}>
+            Close
+          </Button>
+          <Button variant="primary" onClick={handleClose}>
+            Save Changes
+          </Button>
+        </Modal.Footer>
+      </Modal>
     </div>
   )
 }

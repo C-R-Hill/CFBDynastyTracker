@@ -13,6 +13,25 @@ interface DynastyRequest extends Request {
   }
 }
 
+interface CoachDocument {
+  _id: string;
+  dynastyId: string;
+  firstName: string;
+  lastName: string;
+  college: string;
+  position: string;
+  seasons: Array<{
+    year: number;
+    wins: number;
+    losses: number;
+    isEditable: boolean;
+    college: string;
+    position: string;
+  }>;
+  currentYear: number;
+  save: () => Promise<CoachDocument>;
+}
+
 const router = express.Router({ mergeParams: true });
 
 // Get all coaches for a dynasty
@@ -55,10 +74,12 @@ router.post('/',
     body('firstName').trim().notEmpty().withMessage('First name is required'),
     body('lastName').trim().notEmpty().withMessage('Last name is required'),
     body('college').trim().notEmpty().withMessage('College is required'),
+    body('position').trim().notEmpty().withMessage('Position is required'),
     validateRequest
   ],
   async (req: DynastyRequest, res: Response) => {
     try {
+      console.log('CREATE COACH REQ BODY:', req.body);
       const { dynastyId } = req.params;
       const dynasty = await Dynasty.findById(dynastyId);
       if (!dynasty) {
@@ -70,16 +91,18 @@ router.post('/',
         return res.status(400).json({ message: 'Maximum number of coaches (8) reached for this dynasty' });
       }
 
-      // Create new coach with initial 2024 season
+      // Create new coach with initial season matching dynasty's currentYear
       const coach = new Coach({
         ...req.body,
         dynastyId,
-        currentYear: 2024,
+        currentYear: dynasty.currentYear,
         seasons: [{
-          year: 2024,
+          year: dynasty.currentYear,
           wins: 0,
           losses: 0,
-          isEditable: true
+          isEditable: true,
+          college: req.body.college,
+          position: req.body.position
         }]
       });
       
@@ -148,9 +171,16 @@ router.delete('/:coachId',
 router.post('/start-season', async (req: DynastyRequest, res: Response) => {
   try {
     const { dynastyId } = req.params;
-    
+    // Find the dynasty and increment its currentYear
+    const dynasty = await Dynasty.findById(dynastyId);
+    if (!dynasty) {
+      return res.status(404).json({ message: 'Dynasty not found' });
+    }
+    dynasty.currentYear += 1;
+    await dynasty.save();
+
     // Find all coaches in the dynasty
-    const coaches = await Coach.find({ dynastyId });
+    const coaches = await Coach.find({ dynastyId }) as CoachDocument[];
     
     // For each coach, make current season not editable and increment current year
     const updatePromises = coaches.map(async (coach) => {
@@ -161,24 +191,26 @@ router.post('/start-season', async (req: DynastyRequest, res: Response) => {
           coach.seasons[currentSeasonIndex].isEditable = false;
         }
       }
-      
-      // Add new season with incremented year
-      coach.seasons.push({
+
+      // Add new season using the coach's current college and position
+      const newSeason = {
         year: coach.currentYear + 1,
         wins: 0,
         losses: 0,
-        isEditable: true
-      });
+        isEditable: true,
+        college: coach.college,
+        position: coach.position
+      };
       
+      coach.seasons.push(newSeason);
+
       // Increment current year
       coach.currentYear += 1;
-      
       return coach.save();
     });
-    
+
     // Wait for all updates to complete
     const updatedCoaches = await Promise.all(updatePromises);
-    
     res.json(updatedCoaches);
   } catch (error) {
     console.error('Error starting new season:', error);
@@ -192,12 +224,14 @@ router.put('/:coachId/seasons/:year',
     param('year').isInt({ min: 1 }).withMessage('Invalid year'),
     body('wins').isInt({ min: 0 }).withMessage('Wins must be a non-negative number'),
     body('losses').isInt({ min: 0 }).withMessage('Losses must be a non-negative number'),
+    body('college').optional().trim().notEmpty().withMessage('College is required'),
+    body('position').optional().trim().notEmpty().withMessage('Position is required'),
     validateRequest
   ],
   async (req: DynastyRequest, res: Response) => {
     try {
       const { dynastyId, coachId, year } = req.params;
-      const { wins, losses } = req.body;
+      const { wins, losses, college, position } = req.body;
       
       const coach = await Coach.findOne({ _id: coachId, dynastyId });
       if (!coach) {
@@ -216,6 +250,8 @@ router.put('/:coachId/seasons/:year',
       
       coach.seasons[seasonIndex].wins = wins;
       coach.seasons[seasonIndex].losses = losses;
+      if (college) coach.seasons[seasonIndex].college = college;
+      if (position) coach.seasons[seasonIndex].position = position;
       
       await coach.save();
       res.json(coach);
@@ -257,5 +293,38 @@ router.put('/:coachId/seasons/:year/toggle-edit',
     }
   }
 );
+
+// Roll back the current season for all coaches in a dynasty
+router.post('/rollback-season', async (req: DynastyRequest, res: Response) => {
+  try {
+    const { dynastyId } = req.params;
+    // Find all coaches in the dynasty
+    const coaches = await Coach.find({ dynastyId });
+    const updatePromises = coaches.map(async (coach) => {
+      // Only roll back if more than one season exists
+      if (coach.seasons.length > 1) {
+        // Remove the season matching currentYear
+        coach.seasons = coach.seasons.filter(s => s.year !== coach.currentYear);
+        // Decrement currentYear
+        coach.currentYear -= 1;
+        // Make the new current season editable
+        const prevSeason = coach.seasons.find(s => s.year === coach.currentYear);
+        if (prevSeason) prevSeason.isEditable = true;
+        return coach.save();
+      } else {
+        // If only one season, delete the coach
+        await Coach.deleteOne({ _id: coach._id });
+        return null;
+      }
+    });
+    let updatedCoaches = await Promise.all(updatePromises);
+    // Filter out deleted coaches (nulls)
+    updatedCoaches = updatedCoaches.filter(Boolean);
+    res.json(updatedCoaches);
+  } catch (error) {
+    console.error('Error rolling back season:', error);
+    res.status(500).json({ message: 'Error rolling back season' });
+  }
+});
 
 export default router; 

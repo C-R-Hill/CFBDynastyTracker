@@ -20,6 +20,8 @@ export interface Season {
   wins: number;
   losses: number;
   isEditable: boolean;
+  college: string;
+  position: string;
 }
 
 export interface Coach {
@@ -28,8 +30,9 @@ export interface Coach {
   firstName: string;
   lastName: string;
   college: string;
+  position?: string;
   seasons: Season[];
-  currentSeason: number;
+  currentYear: number;
   wins: number;  // Virtual - total career wins
   losses: number;  // Virtual - total career losses
   winPercentage: number;  // Virtual
@@ -42,11 +45,14 @@ export interface CreateCoachData {
   firstName: string;
   lastName: string;
   college: string;
+  position: string;
 }
 
 export interface UpdateSeasonData {
   wins: number;
   losses: number;
+  college: string;
+  position: string;
 }
 
 const api = {
@@ -124,6 +130,12 @@ const api = {
     const response = await axios.put(
       `${API_BASE_URL}/dynasties/${dynastyId}/coaches/${coachId}/seasons/${year}/toggle-edit`
     );
+    return response.data;
+  },
+
+  // Roll back the current season for all coaches in a dynasty
+  rollbackSeason: async (dynastyId: string): Promise<Coach[]> => {
+    const response = await axios.post(`${API_BASE_URL}/dynasties/${dynastyId}/coaches/rollback-season`);
     return response.data;
   }
 };
