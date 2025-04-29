@@ -17,9 +17,11 @@ router.get('/', async (req, res) => {
 router.post('/', async (req, res) => {
   try {
     const { name, startDate } = req.body;
+    const currentYear = new Date().getFullYear();
     const dynasty = new Dynasty({
       name,
-      startDate: new Date(startDate)
+      startDate: new Date(startDate),
+      currentYear
     });
     await dynasty.save();
     res.status(201).json(dynasty);

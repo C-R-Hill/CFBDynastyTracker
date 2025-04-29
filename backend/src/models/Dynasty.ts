@@ -12,7 +12,7 @@ const dynastySchema = new mongoose.Schema({
   },
   currentYear: {
     type: Number,
-    default: 2024
+    default: () => new Date().getFullYear()
   },
   createdAt: {
     type: Date,

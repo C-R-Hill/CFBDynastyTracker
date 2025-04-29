@@ -28,6 +28,45 @@ const seasonSchema = new mongoose.Schema({
   position: {
     type: String,
     required: true
+  },
+  confChamp: {
+    type: Boolean,
+    default: false
+  },
+  postSeason: {
+    type: String,
+    enum: ['none', 'bowl', 'playoff'],
+    default: 'none'
+  },
+  bowlGame: {
+    type: String,
+    default: ''
+  },
+  bowlResult: {
+    type: Boolean,
+    default: false
+  },
+  playoffSeed: {
+    type: Number,
+    min: [1, 'Playoff seed must be between 1 and 12 when in playoff mode'],
+    max: [12, 'Playoff seed must be between 1 and 12 when in playoff mode'],
+    default: undefined,
+    validate: {
+      validator: function(value: number) {
+        // @ts-ignore - this refers to the document
+        if (this.postSeason === 'playoff') {
+          return value >= 1 && value <= 12;
+        }
+        // Allow any value (including undefined) when not in playoff mode
+        return true;
+      },
+      message: 'Playoff seed must be between 1 and 12 when in playoff mode'
+    }
+  },
+  playoffResult: {
+    type: String,
+    enum: ['none', 'first_round_loss', 'second_round_loss', 'semifinal_loss', 'championship_loss', 'champion'],
+    default: 'none'
   }
 });
 

@@ -1,11 +1,20 @@
 import React, { useState, useEffect } from 'react';
 import api, { Dynasty, CreateDynastyData } from '../services/api';
 
-interface DynastySelectorProps {
-  onDynastySelect: (dynasty: Dynasty | null) => void;
+interface Team {
+  id: string;
+  name: string;
+  primaryColor: string;
+  secondaryColor: string;
 }
 
-const DynastySelector: React.FC<DynastySelectorProps> = ({ onDynastySelect }) => {
+interface DynastySelectorProps {
+  onDynastySelect: (dynasty: Dynasty | null) => void;
+  selectedTeam: Team | null;
+  getTextContrastClass: (color: string, size?: 'sm' | 'md' | 'lg') => string;
+}
+
+const DynastySelector: React.FC<DynastySelectorProps> = ({ onDynastySelect, selectedTeam, getTextContrastClass }) => {
   const [showCreateForm, setShowCreateForm] = useState(false);
   const [showEditForm, setShowEditForm] = useState(false);
   const [editingDynasty, setEditingDynasty] = useState<Dynasty | null>(null);
@@ -130,7 +139,9 @@ const DynastySelector: React.FC<DynastySelectorProps> = ({ onDynastySelect }) =>
   return (
     <div className="max-w-4xl mx-auto p-6">
       <div className="bg-white rounded-lg shadow-md p-6">
-        <h1 className="text-3xl font-bold text-gray-900 mb-8">Dynasty Manager</h1>
+        <h1 className={`text-3xl font-bold text-secondary hover:opacity-90 transition-colors mb-8 ${
+          selectedTeam ? getTextContrastClass(selectedTeam.secondaryColor, 'lg') : ''
+        }`}>Dynasty Hub</h1>
         
         {!showCreateForm && !showEditForm ? (
           <div className="space-y-6">
@@ -151,7 +162,22 @@ const DynastySelector: React.FC<DynastySelectorProps> = ({ onDynastySelect }) =>
                         onClick={() => onDynastySelect(dynasty)}
                         className="flex-1 text-left"
                       >
-                        <h3 className="font-medium text-gray-900">{dynasty.name}</h3>
+                        <h3 className="text-lg font-black hover:opacity-90 transition-colors"
+                            style={{ 
+                              color: selectedTeam?.secondaryColor || '#1a365d',
+                              WebkitTextStroke: selectedTeam ? `1px ${selectedTeam.primaryColor}` : '1px rgba(0, 0, 0, 0.3)',
+                              textShadow: selectedTeam ? 
+                                `1px 1px 0 ${selectedTeam.primaryColor},
+                                -1px -1px 0 ${selectedTeam.primaryColor},
+                                1px -1px 0 ${selectedTeam.primaryColor},
+                                -1px 1px 0 ${selectedTeam.primaryColor},
+                                1px 0 0 ${selectedTeam.primaryColor},
+                                -1px 0 0 ${selectedTeam.primaryColor},
+                                0 1px 0 ${selectedTeam.primaryColor},
+                                0 -1px 0 ${selectedTeam.primaryColor}`
+                                : '1px 1px 0 rgba(0, 0, 0, 0.4)'
+                            }}
+                        >{dynasty.name}</h3>
                         <p className="text-sm text-gray-500">Started {formatDate(dynasty.startDate)}</p>
                       </button>
                       <div className="flex space-x-2">
@@ -194,7 +220,11 @@ const DynastySelector: React.FC<DynastySelectorProps> = ({ onDynastySelect }) =>
             <div className="text-center">
               <button
                 onClick={() => setShowCreateForm(true)}
-                className="inline-flex items-center px-4 py-2 border border-transparent text-base font-medium rounded-md shadow-sm text-white bg-blue-600 hover:bg-blue-700 focus:outline-none focus:ring-2 focus:ring-offset-2 focus:ring-blue-500"
+                className="inline-flex items-center px-4 py-2 border border-transparent text-base font-medium rounded-md shadow-sm text-white focus:outline-none focus:ring-2 focus:ring-offset-2 transition-colors hover:opacity-90"
+                style={{
+                  backgroundColor: selectedTeam?.primaryColor || '#3B82F6',
+                  borderColor: selectedTeam?.primaryColor || '#3B82F6'
+                }}
                 disabled={isLoading}
               >
                 Create New Dynasty

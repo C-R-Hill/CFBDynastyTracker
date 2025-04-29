@@ -5,10 +5,11 @@ import CoachForm from './components/CoachForm'
 import DynastySelector from './components/DynastySelector'
 import TeamSelector from './components/TeamSelector'
 import TeamSymbol from './components/TeamSymbol'
-import { Dynasty, Coach } from './services/api'
+import { Dynasty, Coach, UpdateSeasonData, Season } from './services/api'
 import api from './services/api'
 import { Menu } from '@headlessui/react'
 import { teams } from './data/teams'
+import { bowlGames } from './data/bowls'
 import { Modal, Form, Button } from 'react-bootstrap'
 
 interface Team {
@@ -96,27 +97,112 @@ function App() {
     });
   };
 
-  const handleSeasonUpdate = async (
-    coachId: string,
-    year: number,
-    wins: number,
-    losses: number,
-    college: string,
-    position: string
-  ) => {
-    if (!selectedDynasty) return;
+  const handleSeasonUpdate = async (coachId: string, year: number, field: keyof UpdateSeasonData, value: any, playoffSeed?: number) => {
+    let loadingTimeout: ReturnType<typeof setTimeout> | undefined;
+    
     try {
-      setUpdatingCoach(coachId);
-      const updatedCoach = await api.updateSeason(selectedDynasty._id, coachId, year, { wins, losses, college, position });
-      setCoaches(prevCoaches =>
-        prevCoaches.map(coach =>
-          coach._id === coachId ? updatedCoach : coach
+      // Input validation
+      if (!selectedDynasty) {
+        setError('No dynasty selected');
+        return;
+      }
+
+      // Find the current coach and season
+      const coach = coaches.find(c => c._id === coachId);
+      const season = coach?.seasons.find(s => s.year === year);
+      
+      if (!coach || !season) {
+        setError('Could not find coach or season');
+        return;
+      }
+
+      // Start a timer to show loading state only if the operation takes longer than 500ms
+      loadingTimeout = setTimeout(() => {
+        setIsLoading(true);
+      }, 500);
+
+      // Validate the value based on field type
+      if (field === 'postSeason' && !['none', 'bowl', 'playoff'].includes(value)) {
+        setError('Invalid post-season type');
+        return;
+      }
+
+      if (field === 'playoffSeed' && (typeof value !== 'number' || value < 0)) {
+        setError('Invalid playoff seed');
+        return;
+      }
+
+      const updateData: UpdateSeasonData = {
+        wins: season.wins,
+        losses: season.losses,
+        college: season.college,
+        position: season.position,
+        confChamp: season.confChamp,
+        postSeason: season.postSeason,
+        bowlGame: season.bowlGame,
+        bowlOpponent: season.bowlOpponent,
+        bowlResult: season.bowlResult,
+        playoffSeed: season.playoffSeed,
+        playoffResult: season.playoffResult
+      };
+
+      // Handle different field types appropriately
+      if (field === 'postSeason') {
+        updateData.postSeason = value as 'none' | 'bowl' | 'playoff';
+        
+        if (value === 'bowl') {
+          updateData.bowlGame = '';
+          updateData.bowlResult = false;
+          updateData.playoffResult = 'none';
+          updateData.playoffSeed = undefined;
+        } else if (value === 'playoff') {
+          updateData.bowlGame = '';
+          updateData.bowlOpponent = '';
+          updateData.bowlResult = false;
+          updateData.playoffResult = 'none';
+        } else {
+          // value === 'none'
+          updateData.bowlGame = '';
+          updateData.bowlOpponent = '';
+          updateData.bowlResult = false;
+          updateData.playoffSeed = undefined;
+          updateData.playoffResult = 'none';
+        }
+      } else if (field === 'playoffSeed') {
+        updateData.playoffSeed = value;
+        // Reset playoff result to 'none' if changing to seeds 1-4 and first_round_loss was selected
+        if (value >= 1 && value <= 4 && season.playoffResult === 'first_round_loss') {
+          updateData.playoffResult = 'none';
+        }
+      } else {
+        updateData[field] = value;
+      }
+
+      // Clear any existing error
+      setError(null);
+
+      console.log('Sending update:', {
+        coachId,
+        year,
+        updateData
+      });
+
+      const updatedCoach = await api.updateSeason(selectedDynasty._id, coachId, year, updateData);
+      
+      setCoaches(prevCoaches => 
+        prevCoaches.map(coach => 
+          coach._id === updatedCoach._id ? updatedCoach : coach
         )
       );
-    } catch (err) {
-      console.error('Error updating season stats:', err);
+    } catch (error: any) {
+      // Detailed error handling
+      console.error('Error updating season:', error);
+      const errorMessage = error.response?.data?.message || error.message || 'Failed to update season';
+      setError(errorMessage);
     } finally {
-      setUpdatingCoach(null);
+      // Clear the loading timeout and loading state
+      clearTimeout(loadingTimeout);
+      setIsLoading(false);
     }
   };
 
@@ -131,7 +217,7 @@ function App() {
           coach._id === coachId ? updatedCoach : coach
         )
       );
-    } catch (err) {
+    } catch (err: any) {
       console.error('Error toggling season edit:', err);
     } finally {
       setUpdatingCoach(null);
@@ -179,8 +265,9 @@ function App() {
             {
               wins: 0,
               losses: 0,
-              college: coach.college,
-              position: coach.position
+              college: coach.college || '',
+              position: coach.position || 'HC',
+              confChamp: false
             }
           );
         });
@@ -190,7 +277,7 @@ function App() {
       } else {
         setCoaches(newSeasonCoaches);
       }
-    } catch (err) {
+    } catch (err: any) {
       console.error('Error starting new season:', err);
     } finally {
       setIsLoading(false);
@@ -251,6 +338,81 @@ function App() {
 
   const handleClose = () => setShow(false);
   const handleShow = () => setShow(true);
+
+  const calculatePostSeasonRecord = (seasons: Season[]) => {
+    let wins = 0;
+    let losses = 0;
+
+    seasons.forEach(season => {
+      if (season.postSeason === 'bowl') {
+        console.log(`Processing bowl game for ${season.year}:`, {
+          bowlGame: season.bowlGame,
+          bowlResult: season.bowlResult
+        });
+        
+        if (season.bowlResult === true) {
+          wins++;
+          console.log(`Bowl win recorded for ${season.year}`);
+        } else if (season.bowlResult === false) {
+          losses++;
+          console.log(`Bowl loss recorded for ${season.year}`);
+        }
+      } else if (season.postSeason === 'playoff') {
+        switch (season.playoffResult) {
+          case 'champion':
+            wins += season.playoffSeed && season.playoffSeed <= 4 ? 3 : 4;
+            console.log(`Playoff champion: ${season.playoffSeed && season.playoffSeed <= 4 ? 3 : 4} wins`);
+            break;
+          case 'championship_loss':
+            wins += season.playoffSeed && season.playoffSeed <= 4 ? 2 : 3;
+            losses += 1;
+            console.log(`Championship loss: ${season.playoffSeed && season.playoffSeed <= 4 ? 2 : 3} wins, 1 loss`);
+            break;
+          case 'semifinal_loss':
+            wins += season.playoffSeed && season.playoffSeed <= 4 ? 1 : 2;
+            losses += 1;
+            console.log(`Semifinal loss: ${season.playoffSeed && season.playoffSeed <= 4 ? 1 : 2} wins, 1 loss`);
+            break;
+          case 'second_round_loss':
+            wins += season.playoffSeed && season.playoffSeed <= 4 ? 0 : 1;
+            losses += 1;
+            console.log(`Second round loss: ${season.playoffSeed && season.playoffSeed <= 4 ? 0 : 1} wins, 1 loss`);
+            break;
+          case 'first_round_loss':
+            losses += 1;
+            console.log('First round loss: 0 wins, 1 loss');
+            break;
+        }
+      }
+    });
+
+    console.log('Final post-season record:', { wins, losses });
+    const percentage = totalGames => (totalGames === 0 ? 0 : (wins / totalGames * 100).toFixed(1));
+    return { wins, losses, percentage: percentage(wins + losses) };
+  };
+
+  const calculatePositionRecords = (seasons: Season[]) => {
+    const records = {
+      HC: { wins: 0, losses: 0 },
+      OC: { wins: 0, losses: 0 },
+      DC: { wins: 0, losses: 0 }
+    };
+
+    seasons.forEach(season => {
+      if (season.position) {
+        records[season.position].wins += season.wins;
+        records[season.position].losses += season.losses;
+      }
+    });
+
+    return records;
+  };
+
+  const formatRecord = (wins: number, losses: number) => {
+    if (wins === 0 && losses === 0) return null;
+    const percentage = ((wins / (wins + losses)) * 100).toFixed(1);
+    return `${wins}-${losses} (${percentage}%)`;
+  };
 
   return (
     <div className="min-h-screen" style={{ backgroundColor: 'var(--primary-color)' }}>
@@ -331,8 +493,30 @@ function App() {
       />
 
       <main>
-        <div className="max-w-7xl mx-auto py-6 sm:px-6 lg:px-8">
+        <div className="max-w-[120rem] mx-auto py-6 sm:px-6 lg:px-8">
           <div className="px-4 py-6 sm:px-0">
+            {isLoading && (
+              <div className="fixed top-0 left-0 w-full h-full flex items-center justify-center bg-black bg-opacity-50 z-50">
+                <div className="animate-spin rounded-full h-32 w-32 border-t-2 border-b-2 border-blue-500"></div>
+              </div>
+            )}
+            
+            {error && (
+              <div className="mb-4 p-4 bg-red-100 border border-red-400 text-red-700 rounded relative" role="alert">
+                <strong className="font-bold">Error: </strong>
+                <span className="block sm:inline">{error}</span>
+                <button 
+                  className="absolute top-0 right-0 px-4 py-3" 
+                  onClick={() => setError(null)}
+                >
+                  <span className="sr-only">Close</span>
+                  <svg className="h-6 w-6" stroke="currentColor" fill="none" viewBox="0 0 24 24">
+                    <path strokeLinecap="round" strokeWidth="2" d="M6 18L18 6M6 6l12 12" />
+                  </svg>
+                </button>
+              </div>
+            )}
+
             {selectedDynasty ? (
               <div>
                 {/* Dynasty Header */}
@@ -435,10 +619,10 @@ function App() {
                             const teamData = teams.find(t => t.name.toLowerCase() === (currentSeason?.college || '').toLowerCase());
                             const teamColor = teamData ? teamData.primaryColor : '#333';
                             return (
-                              <li key={coach._id} className="px-4 py-4 sm:px-6 hover:bg-gray-50">
+                              <li key={coach._id} className="px-6 py-6 sm:px-8 hover:bg-gray-50">
                                 <div className="flex items-center justify-between">
-                                  <div className="flex-1">
-                                    <div className="flex items-center justify-between mb-2">
+                                  <div className="flex-1 max-w-[calc(100%-120px)]">
+                                    <div className="flex items-center justify-between mb-4">
                                       <p className="text-sm font-medium text-primary">
                                         {coach.firstName} {coach.lastName}
                                         {currentSeason && <span className="ml-2 text-gray-500">({currentSeason.position})</span>}
@@ -446,105 +630,240 @@ function App() {
                                     </div>
                                     
                                     {/* Seasons */}
-                                    <div className="space-y-3">
+                                    <div className="space-y-6">
                                       {coach.seasons
                                         .slice()
                                         .filter(season => typeof season.year === 'number' && season.year >= 2024)
                                         .sort((a, b) => b.year - a.year)
-                                        .map((season) => (
-                                          <div key={season.year} className="flex items-center space-x-4">
-                                            <span className="text-sm text-gray-500 min-w-[200px]">
-                                              {season.year} {season.college} - {season.position}
-                                            </span>
-                                            <div className="flex items-center space-x-4 ml-4">
-                                              <div className="flex items-center space-x-2">
-                                                <label htmlFor={`wins-${coach._id}-${season.year}`} className="text-sm text-gray-500 w-10">
-                                                  Wins:
-                                                </label>
-                                                <input
-                                                  key={`wins-${coach._id}-${season.year}-${season.isEditable}`}
-                                                  type="number"
-                                                  id={`wins-${coach._id}-${season.year}`}
-                                                  min="0"
-                                                  value={season.wins}
-                                                  onChange={(e) => {
-                                                    const wins = parseInt(e.target.value) || 0;
-                                                    if (wins >= 0) {
-                                                      handleSeasonUpdate(coach._id!, season.year, wins, season.losses, season.college, season.position);
-                                                    }
-                                                  }}
-                                                  className="w-16 rounded-md border-gray-300 shadow-sm focus:border-secondary focus:ring-secondary sm:text-sm"
-                                                  disabled={updatingCoach === coach._id || (season.year !== coach.currentYear && !season.isEditable)}
-                                                />
-                                              </div>
-                                              
-                                              <div className="flex items-center space-x-2">
-                                                <label htmlFor={`losses-${coach._id}-${season.year}`} className="text-sm text-gray-500 w-14">
-                                                  Losses:
-                                                </label>
-                                                <input
-                                                  key={`losses-${coach._id}-${season.year}-${season.isEditable}`}
-                                                  type="number"
-                                                  id={`losses-${coach._id}-${season.year}`}
-                                                  min="0"
-                                                  value={season.losses}
-                                                  onChange={(e) => {
-                                                    const losses = parseInt(e.target.value) || 0;
-                                                    if (losses >= 0) {
-                                                      handleSeasonUpdate(coach._id!, season.year, season.wins, losses, season.college, season.position);
-                                                    }
-                                                  }}
-                                                  className="w-16 rounded-md border-gray-300 shadow-sm focus:border-secondary focus:ring-secondary sm:text-sm"
-                                                  disabled={updatingCoach === coach._id || (season.year !== coach.currentYear && !season.isEditable)}
-                                                />
-                                              </div>
-
-                                              {/* Edit/Save Controls - Only show for past seasons */}
-                                              {season.year !== coach.currentYear && (
-                                                <div className="flex items-center space-x-2 ml-4">
-                                                  {season.isEditable ? (
-                                                    <button
-                                                      onClick={() => handleToggleSeasonEdit(coach._id!, season.year)}
-                                                      className="p-1 text-green-600 hover:text-green-800 disabled:opacity-50"
-                                                      disabled={updatingCoach === coach._id}
-                                                      title="Save changes"
-                                                    >
-                                                      <svg xmlns="http://www.w3.org/2000/svg" className="h-5 w-5" viewBox="0 0 20 20" fill="currentColor">
-                                                        <path fillRule="evenodd" d="M16.707 5.293a1 1 0 010 1.414l-8 8a1 1 0 01-1.414 0l-4-4a1 1 0 011.414-1.414L8 12.586l7.293-7.293a1 1 0 011.414 0z" clipRule="evenodd" />
-                                                      </svg>
-                                                    </button>
-                                                  ) : (
-                                                    <button
-                                                      onClick={() => handleToggleSeasonEdit(coach._id!, season.year)}
-                                                      className="p-1 text-blue-600 hover:text-blue-800 disabled:opacity-50"
-                                                      disabled={updatingCoach === coach._id}
-                                                      title="Enable editing"
-                                                    >
-                                                      <svg xmlns="http://www.w3.org/2000/svg" className="h-5 w-5" viewBox="0 0 20 20" fill="currentColor">
-                                                        <path d="M13.586 3.586a2 2 0 112.828 2.828l-.793.793-2.828-2.828.793-.793zM11.379 5.793L3 14.172V17h2.828l8.38-8.379-2.83-2.828z" />
-                                                      </svg>
-                                                    </button>
-                                                  )}
+                                        .map((season) => {
+                                          const seasonTeamData = teams.find(t => t.name.toLowerCase() === season.college.toLowerCase());
+                                          const seasonStyle = season.confChamp && seasonTeamData ? { color: seasonTeamData.primaryColor } : {};
+                                          
+                                          return (
+                                            <div key={season.year} className="grid grid-cols-[250px_minmax(900px,_1fr)] gap-6">
+                                              <span className="text-sm text-gray-500" style={seasonStyle}>
+                                                {season.year} {season.college} - {season.position}
+                                                {season.playoffResult === 'champion' && (
+                                                  <span className="ml-2" title="National Champion">👑</span>
+                                                )}
+                                              </span>
+                                              <div className="flex items-center gap-x-8">
+                                                <div className="flex items-center space-x-2">
+                                                  <label htmlFor={`wins-${coach._id}-${season.year}`} className="text-sm text-gray-500 w-12">
+                                                    Wins:
+                                                  </label>
+                                                  <input
+                                                    type="number"
+                                                    id={`wins-${coach._id}-${season.year}`}
+                                                    min="0"
+                                                    value={season.wins}
+                                                    onChange={(e) => {
+                                                      const wins = parseInt(e.target.value) || 0;
+                                                      if (wins >= 0) {
+                                                        handleSeasonUpdate(coach._id!, season.year, 'wins', wins);
+                                                      }
+                                                    }}
+                                                    className="w-16 rounded-md border-gray-300 shadow-sm focus:border-secondary focus:ring-secondary sm:text-sm"
+                                                    disabled={updatingCoach === coach._id || (season.year !== coach.currentYear && !season.isEditable)}
+                                                  />
                                                 </div>
-                                              )}
+
+                                                <div className="flex items-center space-x-2">
+                                                  <label htmlFor={`losses-${coach._id}-${season.year}`} className="text-sm text-gray-500 w-16">
+                                                    Losses:
+                                                  </label>
+                                                  <input
+                                                    type="number"
+                                                    id={`losses-${coach._id}-${season.year}`}
+                                                    min="0"
+                                                    value={season.losses}
+                                                    onChange={(e) => {
+                                                      const losses = parseInt(e.target.value) || 0;
+                                                      if (losses >= 0) {
+                                                        handleSeasonUpdate(coach._id!, season.year, 'losses', losses);
+                                                      }
+                                                    }}
+                                                    className="w-16 rounded-md border-gray-300 shadow-sm focus:border-secondary focus:ring-secondary sm:text-sm"
+                                                    disabled={updatingCoach === coach._id || (season.year !== coach.currentYear && !season.isEditable)}
+                                                  />
+                                                </div>
+
+                                                <div className="flex items-center space-x-2">
+                                                  <label htmlFor={`confChamp-${coach._id}-${season.year}`} className="text-sm text-gray-500 whitespace-nowrap">
+                                                    Conf Champ:
+                                                  </label>
+                                                  <input
+                                                    type="checkbox"
+                                                    id={`confChamp-${coach._id}-${season.year}`}
+                                                    checked={season.confChamp || false}
+                                                    onChange={(e) => handleSeasonUpdate(coach._id!, season.year, 'confChamp', e.target.checked)}
+                                                    className="w-4 h-4 rounded border-gray-300"
+                                                    style={{
+                                                      accentColor: seasonTeamData?.primaryColor,
+                                                      color: seasonTeamData?.primaryColor
+                                                    }}
+                                                    disabled={updatingCoach === coach._id || (season.year !== coach.currentYear && !season.isEditable)}
+                                                  />
+                                                </div>
+
+                                                <div className="flex items-center space-x-2">
+                                                  <label htmlFor={`postSeason-${coach._id}-${season.year}`} className="text-sm text-gray-500 whitespace-nowrap">
+                                                    Post Season:
+                                                  </label>
+                                                  <select
+                                                    id={`postSeason-${coach._id}-${season.year}`}
+                                                    value={season.postSeason || 'none'}
+                                                    onChange={(e) => handleSeasonUpdate(coach._id!, season.year, 'postSeason', e.target.value)}
+                                                    className="w-24 rounded-md border-gray-300 shadow-sm focus:border-secondary focus:ring-secondary sm:text-sm"
+                                                    disabled={updatingCoach === coach._id || (season.year !== coach.currentYear && !season.isEditable)}
+                                                  >
+                                                    <option value="none">None</option>
+                                                    <option value="bowl">Bowl</option>
+                                                    <option value="playoff">Playoff</option>
+                                                  </select>
+                                                </div>
+
+                                                {season.postSeason === 'bowl' && (
+                                                  <>
+                                                    <div className="flex items-center space-x-2">
+                                                      <label htmlFor={`bowlGame-${coach._id}-${season.year}`} className="text-sm text-gray-500 whitespace-nowrap">
+                                                        Bowl:
+                                                      </label>
+                                                      <select
+                                                        id={`bowlGame-${coach._id}-${season.year}`}
+                                                        value={season.bowlGame || ''}
+                                                        onChange={(e) => handleSeasonUpdate(coach._id!, season.year, 'bowlGame', e.target.value)}
+                                                        className="w-40 rounded-md border-gray-300 shadow-sm focus:border-secondary focus:ring-secondary sm:text-sm"
+                                                        disabled={updatingCoach === coach._id || (season.year !== coach.currentYear && !season.isEditable)}
+                                                      >
+                                                        <option value="">Select Bowl</option>
+                                                        {bowlGames.map((bowl) => (
+                                                          <option key={bowl} value={bowl}>
+                                                            {bowl}
+                                                          </option>
+                                                        ))}
+                                                      </select>
+                                                    </div>
+                                                    <div className="flex items-center space-x-2">
+                                                      <label htmlFor={`bowlOpponent-${coach._id}-${season.year}`} className="text-sm text-gray-500 whitespace-nowrap">
+                                                        Opponent:
+                                                      </label>
+                                                      <input
+                                                        type="text"
+                                                        id={`bowlOpponent-${coach._id}-${season.year}`}
+                                                        value={season.bowlOpponent || ''}
+                                                        onChange={(e) => handleSeasonUpdate(coach._id!, season.year, 'bowlOpponent', e.target.value)}
+                                                        className="w-40 rounded-md border-gray-300 shadow-sm focus:border-secondary focus:ring-secondary sm:text-sm"
+                                                        disabled={updatingCoach === coach._id || (season.year !== coach.currentYear && !season.isEditable)}
+                                                      />
+                                                    </div>
+                                                    <div className="flex items-center space-x-2">
+                                                      <label htmlFor={`bowlResult-${coach._id}-${season.year}`} className="text-sm text-gray-500 whitespace-nowrap">
+                                                        Result:
+                                                      </label>
+                                                      <select
+                                                        id={`bowlResult-${coach._id}-${season.year}`}
+                                                        value={season.bowlResult ? 'win' : 'loss'}
+                                                        onChange={(e) => handleSeasonUpdate(coach._id!, season.year, 'bowlResult', e.target.value === 'win')}
+                                                        className="w-24 rounded-md border-gray-300 shadow-sm focus:border-secondary focus:ring-secondary sm:text-sm"
+                                                        disabled={updatingCoach === coach._id || (season.year !== coach.currentYear && !season.isEditable)}
+                                                      >
+                                                        <option value="win">Win</option>
+                                                        <option value="loss">Loss</option>
+                                                      </select>
+                                                    </div>
+                                                  </>
+                                                )}
+
+                                                {season.postSeason === 'playoff' && (
+                                                  <>
+                                                    <div className="flex items-center space-x-2">
+                                                      <label htmlFor={`playoffSeed-${coach._id}-${season.year}`} className="text-sm text-gray-500 whitespace-nowrap">
+                                                        Seed:
+                                                      </label>
+                                                      <select
+                                                        id={`playoffSeed-${coach._id}-${season.year}`}
+                                                        value={season.playoffSeed || ''}
+                                                        onChange={(e) => handleSeasonUpdate(coach._id!, season.year, 'playoffSeed', parseInt(e.target.value) || undefined)}
+                                                        className="w-20 rounded-md border-gray-300 shadow-sm focus:border-secondary focus:ring-secondary sm:text-sm"
+                                                        disabled={updatingCoach === coach._id || (season.year !== coach.currentYear && !season.isEditable)}
+                                                      >
+                                                        <option value="">Seed</option>
+                                                        {[...Array(12)].map((_, i) => (
+                                                          <option key={i + 1} value={i + 1}>
+                                                            {i + 1}
+                                                          </option>
+                                                        ))}
+                                                      </select>
+                                                    </div>
+                                                    <div className="flex items-center space-x-2">
+                                                      <label htmlFor={`playoffResult-${coach._id}-${season.year}`} className="text-sm text-gray-500 whitespace-nowrap">
+                                                        Result:
+                                                      </label>
+                                                      <select
+                                                        id={`playoffResult-${coach._id}-${season.year}`}
+                                                        value={season.playoffResult}
+                                                        onChange={(e) => handleSeasonUpdate(coach._id!, season.year, 'playoffResult', e.target.value)}
+                                                        className="w-40 rounded-md border-gray-300 shadow-sm focus:border-secondary focus:ring-secondary sm:text-sm"
+                                                        disabled={updatingCoach === coach._id || (season.year !== coach.currentYear && !season.isEditable)}
+                                                      >
+                                                        <option value="none">Not Finished</option>
+                                                        {(!season.playoffSeed || season.playoffSeed > 4) && (
+                                                          <option value="first_round_loss">First Round Loss</option>
+                                                        )}
+                                                        <option value="second_round_loss">Second Round Loss</option>
+                                                        <option value="semifinal_loss">Semifinal Loss</option>
+                                                        <option value="championship_loss">Championship Loss</option>
+                                                        <option value="champion">Champion</option>
+                                                      </select>
+                                                    </div>
+                                                  </>
+                                                )}
+                                              </div>
                                             </div>
-                                          </div>
-                                        ))}
+                                          );
+                                        })}
                                     </div>
 
-                                    <div className="mt-2 text-sm text-gray-500">
-                                      Career: {coach.wins}-{coach.losses} ({coach.winPercentage}%)
+                                    <div className="mt-2 text-sm text-gray-500 flex gap-x-6">
+                                      <span>Career: {coach.wins}-{coach.losses} ({coach.winPercentage}%)</span>
+                                      {(() => {
+                                        const postSeasonRecord = calculatePostSeasonRecord(coach.seasons);
+                                        return (
+                                          <span>Post-Season: {postSeasonRecord.wins}-{postSeasonRecord.losses} ({postSeasonRecord.percentage}%)</span>
+                                        );
+                                      })()}
+                                      {(() => {
+                                        const positionRecords = calculatePositionRecords(coach.seasons);
+                                        return (
+                                          <>
+                                            {Object.entries(positionRecords).map(([position, record]) => {
+                                              const formattedRecord = formatRecord(record.wins, record.losses);
+                                              if (formattedRecord) {
+                                                return (
+                                                  <span key={position}>
+                                                    {position}: {formattedRecord}
+                                                  </span>
+                                                );
+                                              }
+                                              return null;
+                                            })}
+                                          </>
+                                        );
+                                      })()}
                                     </div>
                                   </div>
-                                  {/* Current Team Display */}
-                                  {currentSeason && (
-                                    <span
-                                      className={`text-sm font-bold px-3 py-1 rounded`}
-                                      style={{ backgroundColor: teamColor, color: teamData ? teamData.secondaryColor : '#fff' }}
-                                    >
-                                      {currentSeason.college}
-                                    </span>
-                                  )}
+                                  {/* Current Team Display - Fixed width container */}
+                                  <div className="w-[100px] flex justify-end shrink-0">
+                                    {currentSeason && teamData && (
+                                      <span
+                                        className="text-sm font-bold px-3 py-1 rounded whitespace-nowrap"
+                                        style={{ backgroundColor: teamColor, color: teamData.secondaryColor }}
+                                      >
+                                        {currentSeason.college}
+                                      </span>
+                                    )}
+                                  </div>
                                 </div>
                               </li>
                             )
@@ -569,7 +888,11 @@ function App() {
                 )}
               </div>
             ) : (
-              <DynastySelector onDynastySelect={setSelectedDynasty} />
+              <DynastySelector 
+                onDynastySelect={setSelectedDynasty} 
+                selectedTeam={selectedTeam}
+                getTextContrastClass={getTextContrastClass}
+              />
             )}
           </div>
         </div>
@@ -601,7 +924,8 @@ function App() {
                   {/* Find current season for this coach */}
                   {(() => {
                     const currentSeason = coach.seasons.find(s => s.year === coach.currentYear);
-                    const currentPosition = currentSeason?.position || 'HC';
+                    // Use the pending position update if it exists, otherwise use current position
+                    const currentPosition = coach.position || currentSeason?.position || 'HC';
                     return (
                       <select
                         value={currentPosition}

@@ -2,6 +2,20 @@ import axios from 'axios';
 
 const API_BASE_URL = 'http://localhost:5000/api';
 
+// Configure axios defaults
+axios.defaults.withCredentials = false;  // Don't send credentials in development
+axios.defaults.headers.common['Content-Type'] = 'application/json';
+axios.defaults.headers.common['Accept'] = 'application/json';
+
+// Add response interceptor for error handling
+axios.interceptors.response.use(
+  (response) => response,
+  (error) => {
+    console.error('API Error:', error.response?.data || error.message);
+    throw error;
+  }
+);
+
 export interface Dynasty {
   _id: string;
   name: string;
@@ -22,6 +36,13 @@ export interface Season {
   isEditable: boolean;
   college: string;
   position: string;
+  confChamp: boolean;
+  postSeason: 'none' | 'bowl' | 'playoff';
+  bowlGame: string;
+  bowlOpponent: string;
+  bowlResult: boolean;
+  playoffSeed?: number;
+  playoffResult: 'none' | 'first_round_loss' | 'second_round_loss' | 'semifinal_loss' | 'championship_loss' | 'champion';
 }
 
 export interface Coach {
@@ -49,10 +70,17 @@ export interface CreateCoachData {
 }
 
 export interface UpdateSeasonData {
-  wins: number;
-  losses: number;
-  college: string;
-  position: string;
+  wins?: number;
+  losses?: number;
+  college?: string;
+  position?: string;
+  confChamp?: boolean;
+  postSeason?: 'none' | 'bowl' | 'playoff';
+  bowlGame?: string;
+  bowlOpponent?: string;
+  bowlResult?: boolean;
+  playoffSeed?: number;
+  playoffResult?: 'none' | 'first_round_loss' | 'second_round_loss' | 'semifinal_loss' | 'championship_loss' | 'champion';
 }
 
 const api = {
