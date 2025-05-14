@@ -4,6 +4,7 @@ import Coach from '../models/Coach';
 import { Dynasty } from '../models/Dynasty';
 import { body, param } from 'express-validator';
 import { validateRequest } from '../middleware/validateRequest';
+import auth from '../middleware/auth';
 
 interface DynastyRequest extends Request {
   params: {
@@ -42,10 +43,27 @@ interface CoachDocument extends Document {
 
 const router = express.Router({ mergeParams: true });
 
+// Require authentication for all coach routes
+router.use(auth);
+
+// Helper to check dynasty access
+async function checkDynastyAccess(dynastyId: string, userId: string) {
+  const dynasty = await Dynasty.findById(dynastyId);
+  if (!dynasty) return false;
+  if (String(dynasty.ownerId) === String(userId)) return true;
+  if (dynasty.allowedUsers.map(String).includes(String(userId))) return true;
+  return false;
+}
+
 // Get all coaches for a dynasty
 router.get('/', async (req: DynastyRequest, res: Response) => {
   try {
     const { dynastyId } = req.params;
+    // @ts-ignore
+    const userId = req.user._id;
+    if (!(await checkDynastyAccess(dynastyId, userId))) {
+      return res.status(403).json({ message: 'Access denied' });
+    }
     const coaches = await Coach.find({ dynastyId });
     res.json(coaches);
   } catch (error) {
@@ -61,6 +79,12 @@ router.get('/:coachId', async (req: DynastyRequest, res: Response) => {
     // Validate ID formats
     if (!Types.ObjectId.isValid(dynastyId) || !Types.ObjectId.isValid(coachId!)) {
       return res.status(400).json({ message: 'Invalid ID format' });
+    }
+
+    // @ts-ignore
+    const userId = req.user._id;
+    if (!(await checkDynastyAccess(dynastyId, userId))) {
+      return res.status(403).json({ message: 'Access denied' });
     }
 
     const coach = await Coach.findOne({ _id: coachId, dynastyId });
@@ -89,6 +113,11 @@ router.post('/',
     try {
       console.log('CREATE COACH REQ BODY:', req.body);
       const { dynastyId } = req.params;
+      // @ts-ignore
+      const userId = req.user._id;
+      if (!(await checkDynastyAccess(dynastyId, userId))) {
+        return res.status(403).json({ message: 'Access denied' });
+      }
       const dynasty = await Dynasty.findById(dynastyId);
       if (!dynasty) {
         return res.status(404).json({ message: 'Dynasty not found' });
@@ -136,6 +165,11 @@ router.put('/:coachId',
   async (req: DynastyRequest, res: Response) => {
     try {
       const { dynastyId, coachId } = req.params;
+      // @ts-ignore
+      const userId = req.user._id;
+      if (!(await checkDynastyAccess(dynastyId, userId))) {
+        return res.status(403).json({ message: 'Access denied' });
+      }
       const coach = await Coach.findOneAndUpdate(
         { _id: coachId, dynastyId },
         { $set: req.body },
@@ -162,6 +196,11 @@ router.delete('/:coachId',
   async (req: DynastyRequest, res: Response) => {
     try {
       const { dynastyId, coachId } = req.params;
+      // @ts-ignore
+      const userId = req.user._id;
+      if (!(await checkDynastyAccess(dynastyId, userId))) {
+        return res.status(403).json({ message: 'Access denied' });
+      }
       const coach = await Coach.findOneAndDelete({ _id: coachId, dynastyId });
       
       if (!coach) {
@@ -179,6 +218,11 @@ router.delete('/:coachId',
 router.post('/start-season', async (req: DynastyRequest, res: Response) => {
   try {
     const { dynastyId } = req.params;
+    // @ts-ignore
+    const userId = req.user._id;
+    if (!(await checkDynastyAccess(dynastyId, userId))) {
+      return res.status(403).json({ message: 'Access denied' });
+    }
     // Find the dynasty and increment its currentYear
     const dynasty = await Dynasty.findById(dynastyId);
     if (!dynasty) {
@@ -256,6 +300,11 @@ router.put('/:coachId/seasons/:year',
   async (req: DynastyRequest, res: Response) => {
     try {
       const { dynastyId, coachId, year } = req.params;
+      // @ts-ignore
+      const userId = req.user._id;
+      if (!(await checkDynastyAccess(dynastyId, userId))) {
+        return res.status(403).json({ message: 'Access denied' });
+      }
       const yearNum = parseInt(year || '0', 10);
       
       if (isNaN(yearNum) || yearNum < 1) {
@@ -350,6 +399,12 @@ router.put('/:coachId/seasons/:year/toggle-edit',
         return res.status(400).json({ message: 'Year and coach ID parameters are required' });
       }
       
+      // @ts-ignore
+      const userId = req.user._id;
+      if (!(await checkDynastyAccess(dynastyId, userId))) {
+        return res.status(403).json({ message: 'Access denied' });
+      }
+      
       const coach = await Coach.findOne({ _id: coachId, dynastyId });
       if (!coach) {
         return res.status(404).json({ message: 'Coach not found' });
@@ -376,6 +431,12 @@ router.put('/:coachId/seasons/:year/toggle-edit',
 router.post('/rollback-season', async (req: DynastyRequest, res: Response) => {
   try {
     const { dynastyId } = req.params;
+    
+    // @ts-ignore
+    const userId = req.user._id;
+    if (!(await checkDynastyAccess(dynastyId, userId))) {
+      return res.status(403).json({ message: 'Access denied' });
+    }
     
     // First, update the dynasty's currentYear
     const dynasty = await Dynasty.findById(dynastyId);

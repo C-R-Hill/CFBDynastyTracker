@@ -42,6 +42,13 @@ const seasonSchema = new mongoose.Schema({
     type: String,
     default: ''
   },
+  bowlOpponent: {
+    type: String,
+    required: function(this: any) {
+      return this.postSeason === 'Bowl';
+    },
+    default: 'Select Opponent'
+  },
   bowlResult: {
     type: Boolean,
     default: false

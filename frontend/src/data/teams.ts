@@ -70,6 +70,7 @@ export const teams: Team[] = [
   { id: 'UVA', name: 'Virginia', primaryColor: '#232D4B', secondaryColor: '#F84C1E' },
   { id: 'VT', name: 'Virginia Tech', primaryColor: '#630031', secondaryColor: '#CF4420' },
   { id: 'WAKE', name: 'Wake Forest', primaryColor: '#9E7E38', secondaryColor: '#000000' },
+  { id: 'JMU', name: 'James Madison', primaryColor: '#450084', secondaryColor: '#CBB677' },
   // Group of 5 Conferences
   // American Athletic Conference
   { id: 'CIN', name: 'Cincinnati', primaryColor: '#E00122', secondaryColor: '#000000' },

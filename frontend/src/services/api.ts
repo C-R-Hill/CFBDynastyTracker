@@ -7,6 +7,18 @@ axios.defaults.withCredentials = false;  // Don't send credentials in developmen
 axios.defaults.headers.common['Content-Type'] = 'application/json';
 axios.defaults.headers.common['Accept'] = 'application/json';
 
+// Add request interceptor to attach token
+axios.interceptors.request.use(
+  (config) => {
+    const token = localStorage.getItem('token');
+    if (token) {
+      config.headers['Authorization'] = `Bearer ${token}`;
+    }
+    return config;
+  },
+  (error) => Promise.reject(error)
+);
+
 // Add response interceptor for error handling
 axios.interceptors.response.use(
   (response) => response,
@@ -50,7 +62,7 @@ export interface Coach {
   dynastyId: string;
   firstName: string;
   lastName: string;
-  college: string;
+  college?: string;
   position?: string;
   seasons: Season[];
   currentYear: number;
@@ -165,6 +177,28 @@ const api = {
   rollbackSeason: async (dynastyId: string): Promise<Coach[]> => {
     const response = await axios.post(`${API_BASE_URL}/dynasties/${dynastyId}/coaches/rollback-season`);
     return response.data;
+  },
+
+  // User favorite team endpoints
+  getFavoriteTeam: async (): Promise<string> => {
+    const response = await axios.get('http://localhost:5000/api/auth/favorite-team');
+    return response.data.favoriteTeam;
+  },
+  setFavoriteTeam: async (favoriteTeam: string): Promise<string> => {
+    const response = await axios.put('http://localhost:5000/api/auth/favorite-team', { favoriteTeam });
+    return response.data.favoriteTeam;
+  },
+
+  // Update username
+  updateUsername: async (newUsername: string): Promise<string> => {
+    const response = await axios.put('http://localhost:5000/api/auth/update-username', { newUsername });
+    return response.data.username;
+  },
+
+  // Update password
+  updatePassword: async (oldPassword: string, newPassword: string): Promise<string> => {
+    const response = await axios.put('http://localhost:5000/api/auth/update-password', { oldPassword, newPassword });
+    return response.data.message;
   }
 };
 

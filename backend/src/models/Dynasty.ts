@@ -14,6 +14,15 @@ const dynastySchema = new mongoose.Schema({
     type: Number,
     default: () => new Date().getFullYear()
   },
+  ownerId: {
+    type: mongoose.Schema.Types.ObjectId,
+    ref: 'User',
+    required: true
+  },
+  allowedUsers: [{
+    type: mongoose.Schema.Types.ObjectId,
+    ref: 'User'
+  }],
   createdAt: {
     type: Date,
     default: Date.now

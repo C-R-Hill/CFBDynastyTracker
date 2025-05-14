@@ -1,7 +1,9 @@
 export const bowlGames = [
+  '68 Ventures Bowl',
   'Alamo Bowl',
   'Arizona Bowl',
   'Armed Forces Bowl',
+  'Bahamas Bowl',
   'Birmingham Bowl',
   'Boca Raton Bowl',
   'Camellia Bowl',
@@ -25,15 +27,22 @@ export const bowlGames = [
   'Mayo Bowl',
   'Military Bowl',
   'Music City Bowl',
+  'Myrtle Beach Bowl',
   'New Mexico Bowl',
   'New Orleans Bowl',
   'Orange Bowl',
   'Peach Bowl',
   'Pinstripe Bowl',
+  'Pop-Tarts Bowl',
   'Quick Lane Bowl',
+  'Rate Bowl',
   'ReliaQuest Bowl',
   'Rose Bowl',
-  'Sugar Bowl'
+  'Sports Bowl',
+  'Sugar Bowl',
+  'Sun Bowl',
+  'Texas Bowl',
+  'Veterans Bowl'
 ] as const;
 
 export type BowlGame = typeof bowlGames[number]; 

@@ -1,0 +1,10 @@
+{
+    "models": [
+      {
+        "title": "LLaMA 3 (via Ollama)",
+        "provider": "ollama",
+        "model": "llama3"
+      }
+    ]
+  }
+  

@@ -1,12 +1,14 @@
 import express from 'express';
 import cors from 'cors';
 import dotenv from 'dotenv';
+import path from 'path';
 import mongoose from 'mongoose';
 import dynastyRoutes from './routes/dynasty';
 import coachRoutes from './routes/coach';
+import authRoutes from './routes/auth';
 
 // Load environment variables
-dotenv.config();
+dotenv.config({ path: path.resolve(__dirname, '../.env') });
 
 const app = express();
 
@@ -38,6 +40,8 @@ app.get('/api/health', (req, res) => {
   res.json({ status: 'ok', message: 'Server is running' });
 });
 
+// Auth routes
+app.use('/api/auth', authRoutes);
 // Dynasty routes
 app.use('/api/dynasties', dynastyRoutes);
 // Coach routes as sub-routes of dynasties

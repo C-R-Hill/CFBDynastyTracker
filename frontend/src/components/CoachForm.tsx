@@ -31,9 +31,28 @@ const CoachForm: React.FC<CoachFormProps> = ({ dynasty, onCoachCreated, currentC
       setIsLoading(true);
       setError(null);
       
-      const coachData: CreateCoachData = {
+      // Define as any to avoid linter error for extra properties
+      const coachData: any = {
         ...formData,
         dynastyId: dynasty._id,
+        seasons: [
+          {
+            year: 2024,
+            wins: 0,
+            losses: 0,
+            isEditable: true,
+            college: formData.college,
+            position: formData.position,
+            confChamp: false,
+            postSeason: 'none',
+            bowlGame: '',
+            bowlOpponent: '',
+            bowlResult: false,
+            playoffSeed: undefined,
+            playoffResult: 'none',
+          }
+        ],
+        currentYear: 2024
       };
       
       const newCoach = await api.createCoach(coachData);

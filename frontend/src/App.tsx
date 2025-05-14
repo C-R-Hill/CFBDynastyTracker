@@ -10,7 +10,9 @@ import api from './services/api'
 import { Menu } from '@headlessui/react'
 import { teams } from './data/teams'
 import { bowlGames } from './data/bowls'
+import { bowlTeams } from './data/opponent'
 import { Modal, Form, Button } from 'react-bootstrap'
+import LandingPage from './components/LandingPage'
 
 interface Team {
   id: string;
@@ -30,31 +32,88 @@ function App() {
   const [selectedTeam, setSelectedTeam] = useState<Team | null>(null);
   const [showSeasonModal, setShowSeasonModal] = useState(false);
   const [pendingSeasonUpdates, setPendingSeasonUpdates] = useState<Coach[]>([]);
-
-  // Load selected team from localStorage on component mount
-  useEffect(() => {
-    const savedTeam = localStorage.getItem('selectedTeam');
-    if (savedTeam) {
-      const team = JSON.parse(savedTeam);
-      setSelectedTeam(team);
-      applyTeamColors(team);
-    }
-  }, []);
-
-  // Save selected team to localStorage when it changes
-  useEffect(() => {
-    if (selectedTeam) {
-      localStorage.setItem('selectedTeam', JSON.stringify(selectedTeam));
-    }
-  }, [selectedTeam]);
+  const [auth, setAuth] = useState<{ token: string | null, user: any | null }>({
+    token: localStorage.getItem('token'),
+    user: null
+  });
+  const [show, setShow] = useState(false);
+  const [position, setPosition] = useState('HC');
+  const [showSettingsModal, setShowSettingsModal] = useState(false);
+  const [newUsername, setNewUsername] = useState('');
+  const [usernameError, setUsernameError] = useState('');
+  const [oldPassword, setOldPassword] = useState('');
+  const [newPassword, setNewPassword] = useState('');
+  const [passwordError, setPasswordError] = useState('');
+  const [settingsSuccess, setSettingsSuccess] = useState('');
 
   const applyTeamColors = (team: Team) => {
     // Apply colors to CSS variables
     document.documentElement.style.setProperty('--primary-color', team.primaryColor);
     document.documentElement.style.setProperty('--secondary-color', team.secondaryColor);
-    
     // Apply background color to body but don't set text color globally
     document.body.style.backgroundColor = team.primaryColor;
+  };
+
+  useEffect(() => {
+    if (auth.token && !auth.user) {
+      // Fetch user info
+      fetch('/api/auth/me', {
+        headers: { Authorization: `Bearer ${auth.token}` }
+      })
+        .then(res => res.ok ? res.json() : null)
+        .then(user => {
+          if (user) setAuth(a => ({ ...a, user }));
+          else setAuth({ token: null, user: null });
+        })
+        .catch(() => setAuth({ token: null, user: null }));
+    }
+  }, [auth.token]);
+
+  const handleAuth = (token: string, user: any) => {
+    localStorage.setItem('token', token);
+    setAuth({ token, user });
+  };
+
+  const handleLogout = () => {
+    localStorage.removeItem('token');
+    setAuth({ token: null, user: null });
+  };
+
+  // Load favorite team from backend on login
+  useEffect(() => {
+    const fetchFavoriteTeam = async () => {
+      if (auth.token && auth.user) {
+        try {
+          const favoriteTeamName = await api.getFavoriteTeam();
+          if (favoriteTeamName) {
+            const team = teams.find(t => t.name === favoriteTeamName);
+            if (team) {
+              setSelectedTeam(team);
+              applyTeamColors(team);
+            }
+          } else {
+            // If no favorite team is selected, apply default landing page colors
+            document.documentElement.style.setProperty('--primary-color', '#1a202c');
+            document.documentElement.style.setProperty('--secondary-color', '#ffffff');
+            document.body.style.backgroundColor = '#1a202c';
+          }
+        } catch (err) {
+          console.error('Failed to fetch favorite team:', err);
+        }
+      }
+    };
+    fetchFavoriteTeam();
+  }, [auth.token, auth.user]);
+
+  // Save favorite team to backend when it changes
+  const handleTeamSelect = async (team: Team) => {
+    setSelectedTeam(team);
+    applyTeamColors(team);
+    try {
+      await api.setFavoriteTeam(team.name);
+    } catch (err) {
+      console.error('Failed to save favorite team:', err);
+    }
   };
 
   // Fetch coaches when dynasty is selected
@@ -306,11 +365,6 @@ function App() {
     setShowCreateForm(false);
   };
 
-  const handleTeamSelect = (team: Team) => {
-    setSelectedTeam(team);
-    applyTeamColors(team);
-  };
-
   const isLightColor = (color: string): boolean => {
     // Remove the '#' if present
     const hex = color.replace('#', '');
@@ -332,9 +386,6 @@ function App() {
     }
     return '';
   };
-
-  const [show, setShow] = useState(false);
-  const [position, setPosition] = useState('HC');
 
   const handleClose = () => setShow(false);
   const handleShow = () => setShow(true);
@@ -399,7 +450,7 @@ function App() {
     };
 
     seasons.forEach(season => {
-      if (season.position) {
+      if (season.position && records.hasOwnProperty(season.position)) {
         records[season.position].wins += season.wins;
         records[season.position].losses += season.losses;
       }
@@ -413,6 +464,68 @@ function App() {
     const percentage = ((wins / (wins + losses)) * 100).toFixed(1);
     return `${wins}-${losses} (${percentage}%)`;
   };
+
+  const getLuminance = (color: string): number => {
+    // Remove the '#' if present
+    const hex = color.replace('#', '');
+    
+    // Convert hex to RGB
+    const r = parseInt(hex.substr(0, 2), 16);
+    const g = parseInt(hex.substr(2, 2), 16);
+    const b = parseInt(hex.substr(4, 2), 16);
+    
+    // Calculate relative luminance using WCAG formula
+    const luminance = (0.299 * r + 0.587 * g + 0.114 * b) / 255;
+    return luminance;
+  };
+
+  // Handler stubs
+  const handleUsernameChange = async (e: React.FormEvent) => {
+    e.preventDefault();
+    setUsernameError('');
+    setSettingsSuccess('');
+    try {
+      if (!newUsername.trim()) {
+        setUsernameError('Username cannot be empty');
+        return;
+      }
+      const updatedUsername = await api.updateUsername(newUsername.trim());
+      setSettingsSuccess('Username updated!');
+      setAuth((prev) => prev && prev.user ? { ...prev, user: { ...prev.user, username: updatedUsername } } : prev);
+      setNewUsername('');
+    } catch (err: any) {
+      if (err.response?.data?.message) {
+        setUsernameError(err.response.data.message);
+      } else {
+        setUsernameError('Failed to update username');
+      }
+    }
+  };
+  const handlePasswordChange = async (e: React.FormEvent) => {
+    e.preventDefault();
+    setPasswordError('');
+    setSettingsSuccess('');
+    try {
+      if (!oldPassword || !newPassword) {
+        setPasswordError('Both fields are required');
+        return;
+      }
+      const msg = await api.updatePassword(oldPassword, newPassword);
+      setSettingsSuccess(msg);
+      setOldPassword('');
+      setNewPassword('');
+    } catch (err: any) {
+      if (err.response?.data?.message) {
+        setPasswordError(err.response.data.message);
+      } else {
+        setPasswordError('Failed to update password');
+      }
+    }
+  };
+
+  if (!auth.token || !auth.user) {
+    return <LandingPage onAuth={handleAuth} />;
+  }
 
   return (
     <div className="min-h-screen" style={{ backgroundColor: 'var(--primary-color)' }}>
@@ -428,7 +541,31 @@ function App() {
               College Football Dynasty Tracker
             </button>
             <div className="flex items-center">
-              <TeamSymbol team={selectedTeam} />
+              {/* Username styled like TeamSymbol */}
+              {auth.user && (
+                <span
+                  className="font-bold text-2xl mr-4"
+                  style={{
+                    color: selectedTeam
+                      ? (getLuminance(selectedTeam.secondaryColor) > getLuminance(selectedTeam.primaryColor)
+                          ? selectedTeam.secondaryColor
+                          : selectedTeam.primaryColor)
+                      : '#1a202c',
+                    WebkitTextStroke: selectedTeam
+                      ? `1px ${getLuminance(selectedTeam.secondaryColor) > getLuminance(selectedTeam.primaryColor)
+                          ? selectedTeam.primaryColor
+                          : selectedTeam.secondaryColor}`
+                      : '1px #fff',
+                    textShadow: selectedTeam
+                      ? `1px 1px 0 ${getLuminance(selectedTeam.secondaryColor) > getLuminance(selectedTeam.primaryColor)
+                          ? selectedTeam.primaryColor
+                          : selectedTeam.secondaryColor}`
+                      : '1px 1px 0 #fff',
+                  }}
+                >
+                  {auth.user.username}
+                </span>
+              )}
               <Menu as="div" className="relative">
                 <Menu.Button className="p-2 rounded-md text-gray-600 hover:text-primary hover:bg-gray-100 focus:outline-none focus:ring-2 focus:ring-offset-2 focus:ring-primary">
                   <span className="sr-only">Open menu</span>
@@ -462,13 +599,23 @@ function App() {
                         </button>
                       )}
                     </Menu.Item>
+                    {/* Settings option */}
                     <Menu.Item>
                       {({ active }) => (
                         <button
-                          onClick={() => {
-                            // TODO: Implement logout functionality
-                            console.log('Logout clicked');
-                          }}
+                          onClick={() => setShowSettingsModal(true)}
+                          className={`${
+                            active ? 'bg-primary text-white' : 'text-gray-900'
+                          } block w-full text-left px-4 py-2 text-sm`}
+                        >
+                          Settings
+                        </button>
+                      )}
+                    </Menu.Item>
+                    <Menu.Item>
+                      {({ active }) => (
+                        <button
+                          onClick={handleLogout}
                           className={`${
                             active ? 'bg-primary text-white' : 'text-gray-900'
                           } block w-full text-left px-4 py-2 text-sm`}
@@ -748,14 +895,20 @@ function App() {
                                                       <label htmlFor={`bowlOpponent-${coach._id}-${season.year}`} className="text-sm text-gray-500 whitespace-nowrap">
                                                         Opponent:
                                                       </label>
-                                                      <input
-                                                        type="text"
+                                                      <select
                                                         id={`bowlOpponent-${coach._id}-${season.year}`}
                                                         value={season.bowlOpponent || ''}
                                                         onChange={(e) => handleSeasonUpdate(coach._id!, season.year, 'bowlOpponent', e.target.value)}
                                                         className="w-40 rounded-md border-gray-300 shadow-sm focus:border-secondary focus:ring-secondary sm:text-sm"
                                                         disabled={updatingCoach === coach._id || (season.year !== coach.currentYear && !season.isEditable)}
-                                                      />
+                                                      >
+                                                        <option value="">Select Opponent</option>
+                                                        {bowlTeams.map((opponent) => (
+                                                          <option key={opponent} value={opponent}>
+                                                            {opponent}
+                                                          </option>
+                                                        ))}
+                                                      </select>
                                                     </div>
                                                     <div className="flex items-center space-x-2">
                                                       <label htmlFor={`bowlResult-${coach._id}-${season.year}`} className="text-sm text-gray-500 whitespace-nowrap">
@@ -910,17 +1063,31 @@ function App() {
                   <span className="w-32 font-medium" style={{ color: 'var(--primary-color)' }}>
                     {coach.firstName} {coach.lastName}
                   </span>
-                  <input
-                    type="text"
-                    value={coach.college}
-                    onChange={e => handlePendingSeasonChange(coach._id!, 'college', e.target.value)}
-                    className="w-40 rounded-md shadow-sm sm:text-sm bg-opacity-90"
-                    style={{ 
-                      backgroundColor: 'var(--primary-color)',
-                      color: 'var(--secondary-color)',
-                      borderColor: 'var(--primary-color)'
-                    }}
-                  />
+                  {(() => {
+                    // Find the most recent season (highest year)
+                    const mostRecentSeason = coach.seasons.reduce<Season | undefined>((latest, s) => !latest || s.year > latest.year ? s : latest, undefined);
+                    // Always use the most recent season's college, fallback to coach.college if no seasons
+                    const currentSchool = mostRecentSeason?.college || coach.college || 'Air Force';
+                    return (
+                      <select
+                        value={currentSchool}
+                        onChange={(e) => handlePendingSeasonChange(coach._id!, 'college', e.target.value)}
+                        className="w-40 rounded-md shadow-sm sm:text-sm bg-opacity-90"
+                        style={{ 
+                          backgroundColor: 'var(--primary-color)',
+                          color: 'var(--secondary-color)',
+                          borderColor: 'var(--primary-color)'
+                        }}
+                      >
+                        <option value="">Select Team</option>
+                        {bowlTeams.map((team) => (
+                          <option key={team} value={team}>
+                            {team}
+                          </option>
+                        ))}
+                      </select>
+                    );
+                  })()}
                   {/* Find current season for this coach */}
                   {(() => {
                     const currentSeason = coach.seasons.find(s => s.year === coach.currentYear);
@@ -972,33 +1139,98 @@ function App() {
         </div>
       )}
 
-      <Modal show={show} onHide={handleClose}>
-        <Modal.Header closeButton>
-          <Modal.Title>Edit Season</Modal.Title>
+      {/* Settings Modal */}
+      <Modal show={showSettingsModal} onHide={() => setShowSettingsModal(false)}>
+        <Modal.Header
+          closeButton
+          style={{
+            backgroundColor: selectedTeam ? selectedTeam.primaryColor : '#1a202c',
+            color: selectedTeam ? selectedTeam.secondaryColor : '#fff',
+          }}
+        >
+          <Modal.Title>Account Settings</Modal.Title>
         </Modal.Header>
-        <Modal.Body>
-          <Form>
+        <Modal.Body
+          style={{
+            backgroundColor: selectedTeam ? selectedTeam.secondaryColor : '#fff',
+            color: selectedTeam ? selectedTeam.primaryColor : '#1a202c',
+          }}
+        >
+          {settingsSuccess && <div className="alert alert-success">{settingsSuccess}</div>}
+          <Form onSubmit={handleUsernameChange} className="mb-4">
             <Form.Group className="mb-3">
-              <Form.Label>Position</Form.Label>
-              <Form.Select 
-                value={position}
-                onChange={(e) => setPosition(e.target.value)}
-              >
-                <option value="HC">Head Coach (HC)</option>
-                <option value="OC">Offensive Coordinator (OC)</option>
-                <option value="DC">Defensive Coordinator (DC)</option>
-              </Form.Select>
+              <Form.Label>Change Username</Form.Label>
+              <Form.Control
+                type="text"
+                value={newUsername}
+                onChange={e => setNewUsername(e.target.value)}
+                placeholder="Enter new username"
+                autoComplete="off"
+                style={{
+                  backgroundColor: selectedTeam ? selectedTeam.secondaryColor : '#fff',
+                  color: selectedTeam ? selectedTeam.primaryColor : '#1a202c',
+                  borderColor: selectedTeam ? selectedTeam.primaryColor : '#1a202c',
+                }}
+              />
+              {usernameError && <div className="text-danger mt-1">{usernameError}</div>}
             </Form.Group>
+            <Button
+              variant="primary"
+              type="submit"
+              style={{
+                backgroundColor: selectedTeam ? selectedTeam.primaryColor : '#1a202c',
+                color: selectedTeam ? selectedTeam.secondaryColor : '#fff',
+                borderColor: selectedTeam ? selectedTeam.primaryColor : '#1a202c',
+              }}
+            >
+              Update Username
+            </Button>
+          </Form>
+          <Form onSubmit={handlePasswordChange}>
+            <Form.Group className="mb-3">
+              <Form.Label>Current Password</Form.Label>
+              <Form.Control
+                type="password"
+                value={oldPassword}
+                onChange={e => setOldPassword(e.target.value)}
+                placeholder="Enter current password"
+                autoComplete="current-password"
+                style={{
+                  backgroundColor: selectedTeam ? selectedTeam.secondaryColor : '#fff',
+                  color: selectedTeam ? selectedTeam.primaryColor : '#1a202c',
+                  borderColor: selectedTeam ? selectedTeam.primaryColor : '#1a202c',
+                }}
+              />
+            </Form.Group>
+            <Form.Group className="mb-3">
+              <Form.Label>New Password</Form.Label>
+              <Form.Control
+                type="password"
+                value={newPassword}
+                onChange={e => setNewPassword(e.target.value)}
+                placeholder="Enter new password"
+                autoComplete="new-password"
+                style={{
+                  backgroundColor: selectedTeam ? selectedTeam.secondaryColor : '#fff',
+                  color: selectedTeam ? selectedTeam.primaryColor : '#1a202c',
+                  borderColor: selectedTeam ? selectedTeam.primaryColor : '#1a202c',
+                }}
+              />
+              {passwordError && <div className="text-danger mt-1">{passwordError}</div>}
+            </Form.Group>
+            <Button
+              variant="primary"
+              type="submit"
+              style={{
+                backgroundColor: selectedTeam ? selectedTeam.primaryColor : '#1a202c',
+                color: selectedTeam ? selectedTeam.secondaryColor : '#fff',
+                borderColor: selectedTeam ? selectedTeam.primaryColor : '#1a202c',
+              }}
+            >
+              Change Password
+            </Button>
           </Form>
         </Modal.Body>
-        <Modal.Footer>
-          <Button variant="secondary" onClick={handleClose}>
-            Close
-          </Button>
-          <Button variant="primary" onClick={handleClose}>
-            Save Changes
-          </Button>
-        </Modal.Footer>
       </Modal>
     </div>
   )
